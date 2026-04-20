@@ -1771,148 +1771,177 @@ function showResult(g){
 
 // ── MAP ───────────────────────────────────────────────────
 function drawMap(targetGuest){
+  // Așteptăm ca DOM-ul să fie gata și canvas-ul să aibă lățime
+  requestAnimationFrame(()=>{
+    _doDrawMap(targetGuest);
+  });
+}
+
+function _doDrawMap(targetGuest){
   const cv = document.getElementById('map-canvas');
   const ctx = cv.getContext('2d');
-  const W = cv.parentElement.clientWidth;
-  cv.width = W; cv.style.width = W+'px';
 
-  // Find bounds of all tables
+  // Lățimea reală a containerului
+  let W = cv.parentElement.getBoundingClientRect().width;
+  if(!W || W < 10) W = window.innerWidth - 40;
+  W = Math.floor(W);
+
+  if(!TABLES || TABLES.length === 0){ console.warn('No tables'); return; }
+
+  // Bounds mondiale
   const allX = TABLES.map(t=>t.x);
   const allY = TABLES.map(t=>t.y);
-  const minX = Math.min(...allX)-150, maxX = Math.max(...allX)+150;
-  const minY = Math.min(...allY)-100, maxY = Math.max(...allY)+200;
-  const worldW = maxX-minX, worldH = maxY-minY;
+  let minX = Math.min(...allX), maxX = Math.max(...allX);
+  let minY = Math.min(...allY), maxY = Math.max(...allY);
 
-  // IMPORTANT: intrarea e din SUD (jos în world = mare Y)
-  // Rotim harta 180° ca intrarea să fie jos pe ecran
-  // Adică: world Y mic = sus pe ecran (nord), world Y mare = jos pe ecran (sud/intrare)
-  const padding = 30;
-  const sc = Math.min((W-padding*2)/worldW, 400/worldH);
-  const H = worldH*sc + padding*2;
-  cv.height = H; cv.style.height = H+'px';
+  // Adăugăm spațiu pentru scaune și intrare
+  minX -= 120; maxX += 120;
+  minY -= 80;  maxY += 160; // spațiu extra jos pentru intrare
 
-  function wx(x){ return (x-minX)*sc + padding; }
-  function wy(y){ return (y-minY)*sc + padding; }
+  const worldW = maxX - minX;
+  const worldH = maxY - minY;
 
-  // Background
-  ctx.fillStyle='#faf7f2'; ctx.fillRect(0,0,W,H);
+  const PAD = 24;
+  const sc = Math.min((W - PAD*2) / worldW, 500 / worldH);
+  const H = Math.ceil(worldH * sc + PAD*2);
 
-  // Grid light
-  ctx.strokeStyle='rgba(184,146,74,.08)'; ctx.lineWidth=1;
-  for(let gx=0;gx<W;gx+=40){ctx.beginPath();ctx.moveTo(gx,0);ctx.lineTo(gx,H);ctx.stroke();}
-  for(let gy=0;gy<H;gy+=40){ctx.beginPath();ctx.moveTo(0,gy);ctx.lineTo(W,gy);ctx.stroke();}
+  cv.width  = W;
+  cv.height = H;
+  cv.style.width  = W + 'px';
+  cv.style.height = H + 'px';
 
-  // Draw decors
+  // world → screen (Y normal: nord=sus, sud=jos)
+  function wx(x){ return (x - minX)*sc + PAD; }
+  function wy(y){ return (y - minY)*sc + PAD; }
+
+  // ── Background ──────────────────────────────────────────
+  ctx.fillStyle = '#faf7f2';
+  ctx.fillRect(0, 0, W, H);
+
+  // ── Grid ────────────────────────────────────────────────
+  ctx.strokeStyle = 'rgba(184,146,74,.07)';
+  ctx.lineWidth = 1;
+  for(let x=0; x<W; x+=30){ ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke(); }
+  for(let y=0; y<H; y+=30){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
+
+  // ── Decors ──────────────────────────────────────────────
   DECORS.forEach(d=>{
     const sx=wx(d.x), sy=wy(d.y), dw=d.w*sc, dh=d.h*sc;
     let fill='#ede8f8', stroke='#9080c0';
-    if(d.type==='bar'){fill='#e0f0e8';stroke='#3a7a54';}
-    else if(d.type==='stage'){fill='#f0e8d8';stroke='#b8924a';}
+    if(d.type==='bar')  { fill='#e0f0e8'; stroke='#3a7a54'; }
+    if(d.type==='stage'){ fill='#f0e8d8'; stroke='#b8924a'; }
     ctx.save();
-    ctx.beginPath(); ctx.roundRect(sx-dw/2,sy-dh/2,dw,dh,5);
+    ctx.beginPath(); ctx.roundRect(sx-dw/2, sy-dh/2, dw, dh, 4);
     ctx.fillStyle=fill; ctx.fill();
-    ctx.strokeStyle=stroke; ctx.lineWidth=1.5; ctx.setLineDash([4,3]); ctx.stroke(); ctx.setLineDash([]);
-    if(sc>0.3){
-      ctx.font=\`bold \${Math.max(7,9*sc)}px 'Jost',sans-serif\`;
-      ctx.fillStyle=stroke; ctx.textAlign='center'; ctx.textBaseline='middle';
-      ctx.fillText(d.label,sx,sy);
-    }
+    ctx.strokeStyle=stroke; ctx.lineWidth=1.5;
+    ctx.setLineDash([5,3]); ctx.stroke(); ctx.setLineDash([]);
+    ctx.font=\`bold \${Math.max(7,Math.round(9*sc))}px sans-serif\`;
+    ctx.fillStyle=stroke; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(d.label, sx, sy);
     ctx.restore();
   });
 
-  // Draw all tables
+  // ── Mese ────────────────────────────────────────────────
   TABLES.forEach(t=>{
-    const isTarget = t.id == targetGuest.tableId;
-    const sx=wx(t.x), sy=wy(t.y), tw=t.tw*sc, th=t.th*sc;
+    const isTarget = String(t.id) === String(targetGuest.tableId);
+    const sx=wx(t.x), sy=wy(t.y);
+    const tw=(t.tw||220)*sc, th=(t.th||65)*sc;
     ctx.save();
-    ctx.beginPath(); ctx.roundRect(sx-tw/2,sy-th/2,tw,th,4);
-    ctx.fillStyle = isTarget ? '#fff0e0' : (t.miri ? '#fffcee' : 'white');
-    ctx.shadowColor='rgba(0,0,0,.1)'; ctx.shadowBlur=4; ctx.fill(); ctx.shadowColor='transparent';
-    ctx.strokeStyle = isTarget ? '#e05020' : (t.miri ? '#c9a84c' : '#cfc0a0');
-    ctx.lineWidth = isTarget ? 2.5 : 1;
-    ctx.stroke();
-    if(sc>0.25){
-      ctx.font=\`\${Math.max(6,8*sc)}px 'Jost',sans-serif\`;
-      ctx.fillStyle = isTarget ? '#c03000' : '#8a7060';
-      ctx.textAlign='center'; ctx.textBaseline='middle';
-      ctx.fillText(t.name, sx, sy);
-    }
+    // Shadow
+    ctx.shadowColor='rgba(0,0,0,.12)'; ctx.shadowBlur=5;
+    ctx.beginPath(); ctx.roundRect(sx-tw/2, sy-th/2, tw, th, 4);
+    ctx.fillStyle = isTarget ? '#fff3ee' : (t.miri ? '#fffcf0' : '#ffffff');
+    ctx.fill(); ctx.shadowColor='transparent';
+    ctx.strokeStyle = isTarget ? '#d04010' : (t.miri ? '#c9a84c' : '#d0c4b0');
+    ctx.lineWidth = isTarget ? 3 : 1.2;
+    if(t.miri){ ctx.setLineDash([4,3]); }
+    ctx.stroke(); ctx.setLineDash([]);
+
+    // Nume masă
+    const fs = Math.max(7, Math.round(8.5*sc));
+    ctx.font = isTarget
+      ? \`bold \${fs}px sans-serif\`
+      : \`\${fs}px sans-serif\`;
+    ctx.fillStyle = isTarget ? '#c03010' : '#7a6050';
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(t.name, sx, sy);
     ctx.restore();
   });
 
-  // ── PATH de la intrare la masă ────────────────────────────────────
-  const targetTable = TABLES.find(x=>x.id==targetGuest.tableId);
-  if(!targetTable) return;
+  // ── Linie roșie intrare → masă ──────────────────────────
+  const targetTable = TABLES.find(x=>String(x.id)===String(targetGuest.tableId));
+  if(!targetTable){ console.warn('Target table not found', targetGuest.tableId, TABLES.map(t=>t.id)); return; }
 
-  // Intrarea = centrul sălii, jos (maxY + offset)
-  const entranceX = (Math.min(...TABLES.map(t=>t.x)) + Math.max(...TABLES.map(t=>t.x))) / 2;
-  const entranceY = maxY - 50; // jos în world coords
+  // Intrarea e la SUD — centrul sălii, y = maxY (cel mai jos punct)
+  const entWorldX = (Math.min(...allX) + Math.max(...allX)) / 2;
+  const entWorldY = maxY - 80; // aproape de marginea de jos
 
-  // Punct de intrare pe ecran
-  const ex = wx(entranceX), ey = wy(entranceY) + 20;
-  const tx = wx(targetTable.x), ty = wy(targetTable.y);
+  const ex = wx(entWorldX);
+  const ey = wy(entWorldY);
+  const tx = wx(targetTable.x);
+  const ty = wy(targetTable.y);
 
-  // Calculăm waypoints pentru path natural (evitare simplă)
-  const midY_screen = wy(0); // centrul sălii pe Y
+  // Culoar central pe Y (mijlocul sălii)
+  const midWorldY = (Math.min(...allY) + Math.max(...allY)) / 2;
+  const corridorY  = wy(midWorldY);
 
+  // Path: intrare → culoar central (pe X-ul mesei) → masă
   ctx.save();
-  ctx.strokeStyle='#e03020';
-  ctx.lineWidth=3;
-  ctx.setLineDash([8,5]);
-  ctx.lineCap='round';
-  ctx.lineJoin='round';
-  ctx.shadowColor='rgba(220,50,30,.4)';
-  ctx.shadowBlur=6;
+  ctx.strokeStyle = '#d03010';
+  ctx.lineWidth   = 3.5;
+  ctx.lineCap     = 'round';
+  ctx.lineJoin    = 'round';
+  ctx.setLineDash([10, 6]);
+  ctx.shadowColor = 'rgba(200,40,10,.35)';
+  ctx.shadowBlur  = 8;
 
   ctx.beginPath();
   ctx.moveTo(ex, ey);
-
-  // Waypoints: intrare → coridor central → masa
-  // Mergem pe culoarul central (y = mijloc sală), apoi spre masă
-  const corridorY = wy((Math.min(...TABLES.map(t=>t.y)) + Math.max(...TABLES.map(t=>t.y)))/2);
-
+  // Bezier: urcă din intrare → se aliniază pe X-ul mesei → ajunge la masă
   ctx.bezierCurveTo(
-    ex, ey - (ey-corridorY)*0.3,
-    tx, corridorY + (ty-corridorY)*0.3,
-    tx, ty
+    ex, ey - (ey - corridorY) * 0.5,   // control 1
+    tx, corridorY,                        // control 2
+    tx, ty + (t=>t.th||65)(targetTable)*sc/2 + 4  // end: marginea de jos a mesei
   );
   ctx.stroke();
   ctx.setLineDash([]);
   ctx.shadowColor='transparent';
 
-  // Săgeată la masă
-  const angle = Math.atan2(ty - (corridorY + (ty-corridorY)*0.3), tx - tx);
-  drawArrow(ctx, tx, ty, '#e03020');
-
-  // Pulsing dot la intrare
-  ctx.beginPath(); ctx.arc(ex, ey, 7, 0, Math.PI*2);
-  ctx.fillStyle='#e03020'; ctx.fill();
+  // Dot la intrare (verde = start)
+  ctx.beginPath(); ctx.arc(ex, ey, 8, 0, Math.PI*2);
+  ctx.fillStyle = '#3a7a54'; ctx.fill();
   ctx.beginPath(); ctx.arc(ex, ey, 4, 0, Math.PI*2);
-  ctx.fillStyle='white'; ctx.fill();
+  ctx.fillStyle = 'white'; ctx.fill();
 
-  // Highlight masă țintă
+  // Triunghi săgeată la masă
+  ctx.fillStyle = '#d03010';
   ctx.beginPath();
-  ctx.arc(tx, ty, 14, 0, Math.PI*2);
-  ctx.fillStyle='rgba(220,80,30,.15)'; ctx.fill();
-  ctx.strokeStyle='#e03020'; ctx.lineWidth=2.5; ctx.stroke();
+  ctx.moveTo(tx,      ty - 16);
+  ctx.lineTo(tx - 8,  ty -  2);
+  ctx.lineTo(tx + 8,  ty -  2);
+  ctx.closePath(); ctx.fill();
+
+  // Highlight cerc pe masă
+  const thtw = (targetTable.th||65)*sc/2;
+  ctx.beginPath(); ctx.arc(tx, ty, thtw + 8, 0, Math.PI*2);
+  ctx.fillStyle='rgba(208,48,16,.1)'; ctx.fill();
+  ctx.strokeStyle='#d03010'; ctx.lineWidth=2.5; ctx.stroke();
 
   ctx.restore();
 
   // Label intrare
-  ctx.font='bold 10px Jost,sans-serif';
-  ctx.fillStyle='#e03020'; ctx.textAlign='center';
-  ctx.fillText('INTRARE ⬇', ex, ey+18);
+  ctx.save();
+  ctx.font = 'bold 11px sans-serif';
+  ctx.fillStyle = '#3a7a54';
+  ctx.textAlign = 'center';
+  ctx.fillText('▼ INTRARE', ex, ey + 20);
+  ctx.restore();
 }
 
 function drawArrow(ctx, x, y, color){
-  ctx.save();
-  ctx.fillStyle=color;
-  ctx.beginPath();
-  ctx.moveTo(x, y-12);
-  ctx.lineTo(x-7, y+2);
-  ctx.lineTo(x+7, y+2);
-  ctx.closePath(); ctx.fill();
-  ctx.restore();
+  ctx.save(); ctx.fillStyle=color;
+  ctx.beginPath(); ctx.moveTo(x,y-12); ctx.lineTo(x-7,y+2); ctx.lineTo(x+7,y+2);
+  ctx.closePath(); ctx.fill(); ctx.restore();
 }
 
 // Redraw on resize
